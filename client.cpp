@@ -5,22 +5,21 @@
 #include <fstream>
 #include <winsock2.h>
 
-#pragma comment(lib, "Ws2_32.lib") // Vincula a biblioteca Winsock
+#pragma comment(lib, "Ws2_32.lib")
 
 #define PORT 5000
 #define MAX_PACKETS 10000
 #define PACKET_SIZE sizeof(Packet)
-#define TIMEOUT_SEC 1 // Timeout em segundos
+#define TIMEOUT_SEC 1
 
 struct Packet {
-    int seq_num;      // Número de sequência
-    int ack_num;      // Número do último ACK
-    int window_size;  // Tamanho da janela do destinatário
-    char data[1000];  // Payload
+    int seq_num;
+    int ack_num;
+    int window_size;
+    char data[1000];
 };
 
 int main() {
-    // Inicializar Winsock
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "Erro ao inicializar Winsock" << std::endl;
@@ -34,35 +33,30 @@ int main() {
         return -1;
     }
 
-    // Configurar timeout
-    int timeout = TIMEOUT_SEC * 1000; // Em milissegundos
+    int timeout = TIMEOUT_SEC * 1000;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 
     struct sockaddr_in serv_addr;
-    int addr_len = sizeof(serv_addr); // Substituí socklen_t por int
+    int addr_len = sizeof(serv_addr);
     Packet packet, ack_packet;
     char buffer[PACKET_SIZE];
     int sent_packets = 0;
     int last_ack = -1;
-    int cwnd = 1;         // Janela de congestionamento
-    int ssthresh = 16;    // Limiar inicial
+    int cwnd = 1;
+    int ssthresh = 16;
     int dup_ack_count = 0;
     std::vector<double> throughput_with_congestion;
 
-    // Configurar endereço do servidor
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(PORT);
     serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     std::string data = "Dados de teste para o trabalho final";
-
-    // Registrar início do tempo
     auto start_time = std::chrono::high_resolution_clock::now();
 
+    // Fase com congestionamento
     while (sent_packets < MAX_PACKETS) {
-        // Determinar tamanho da janela
         int window = (last_ack == -1) ? cwnd : std::min(cwnd, ack_packet.window_size);
-
         for (int i = 0; i < window && sent_packets < MAX_PACKETS; i++) {
             packet.seq_num = sent_packets;
             packet.ack_num = 0;
@@ -75,7 +69,7 @@ int main() {
 
         int bytes_received = recvfrom(sock, buffer, PACKET_SIZE, 0, nullptr, nullptr);
         if (bytes_received > 0) {
-            memcpy(&ack_packet, buffer, PACKET_SIZE); // Copiar buffer para struct
+            memcpy(&ack_packet, buffer, PACKET_SIZE);
             if (ack_packet.ack_num == last_ack) {
                 dup_ack_count++;
                 if (dup_ack_count == 3) {
@@ -87,16 +81,16 @@ int main() {
             } else if (ack_packet.ack_num > last_ack) {
                 last_ack = ack_packet.ack_num;
                 dup_ack_count = 0;
-                if (cwnd < ssthresh) cwnd++; // Slow Start
-                else cwnd += 1;              // Congestion Avoidance
+                if (cwnd < ssthresh) cwnd++;           // Slow Start
+                else cwnd += static_cast<int>(1.0 / cwnd); // Congestion Avoidance (mais suave)
                 std::cout << "Recebido ACK #" << last_ack << ", cwnd = " << cwnd << std::endl;
             }
 
-            // Calcular vazão
             auto now = std::chrono::high_resolution_clock::now();
             double elapsed = std::chrono::duration<double>(now - start_time).count();
-            throughput_with_congestion.push_back((last_ack + 1) / elapsed);
-        } else { // Timeout
+            if (elapsed > 0.01) // Evitar valores iniciais irreais
+                throughput_with_congestion.push_back((last_ack + 1) / elapsed);
+        } else {
             ssthresh = std::max(cwnd / 2, 1);
             cwnd = 1;
             dup_ack_count = 0;
@@ -104,14 +98,13 @@ int main() {
         }
     }
 
-    // Salvar dados de vazão com controle de congestionamento
     std::ofstream file("throughput_with_congestion.csv");
     file << "Tempo,Vazao\n";
     for (size_t i = 0; i < throughput_with_congestion.size(); i++)
         file << i << "," << throughput_with_congestion[i] << "\n";
     file.close();
 
-   // Teste sem controle de congestionamento
+    // Fase sem congestionamento
     sent_packets = 0;
     last_ack = -1;
     std::vector<double> throughput_without_congestion;
@@ -124,38 +117,29 @@ int main() {
         std::cout << "Enviado pacote #" << sent_packets << " (sem controle)" << std::endl;
         sent_packets++;
 
-    // Receber ACK
-    int bytes_received = recvfrom(sock, buffer, PACKET_SIZE, 0, nullptr, nullptr);
-    if (bytes_received > 0) {
-        memcpy(&ack_packet, buffer, PACKET_SIZE);
-        // Calcular vazão a cada pacote enviado, usando o número de pacotes confirmados
-        auto now = std::chrono::high_resolution_clock::now();
-        double elapsed = std::chrono::duration<double>(now - start_time).count();
-        if (elapsed > 0) { // Evitar divisão por zero
-            // Usar sent_packets como base, já que não há controle de janela
-            throughput_without_congestion.push_back(sent_packets / elapsed);
-        }
-        if (ack_packet.ack_num > last_ack) {
-            last_ack = ack_packet.ack_num;
-            std::cout << "Recebido ACK #" << last_ack << " (sem controle)" << std::endl;
-        }
-    } else {
-        // Timeout: registrar vazão mesmo assim
-        auto now = std::chrono::high_resolution_clock::now();
-        double elapsed = std::chrono::duration<double>(now - start_time).count();
-        if (elapsed > 0) {
-            throughput_without_congestion.push_back(sent_packets / elapsed);
+        int bytes_received = recvfrom(sock, buffer, PACKET_SIZE, 0, nullptr, nullptr);
+        if (bytes_received > 0) {
+            memcpy(&ack_packet, buffer, PACKET_SIZE);
+            auto now = std::chrono::high_resolution_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start_time).count();
+            if (elapsed > 0)
+                throughput_without_congestion.push_back(sent_packets / elapsed);
+            if (ack_packet.ack_num > last_ack) {
+                last_ack = ack_packet.ack_num;
+            }
+        } else {
+            auto now = std::chrono::high_resolution_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start_time).count();
+            if (elapsed > 0)
+                throughput_without_congestion.push_back(sent_packets / elapsed);
         }
     }
-}
 
-// Salvar dados de vazão sem controle de congestionamento
-file.open("throughput_without_congestion.csv");
-file << "Tempo,Vazao\n";
-for (size_t i = 0; i < throughput_without_congestion.size(); i++) {
-    file << i << "," << throughput_without_congestion[i] << "\n";
-}
-file.close();
+    file.open("throughput_without_congestion.csv");
+    file << "Tempo,Vazao\n";
+    for (size_t i = 0; i < throughput_without_congestion.size(); i++)
+        file << i << "," << throughput_without_congestion[i] << "\n";
+    file.close();
 
     closesocket(sock);
     WSACleanup();
