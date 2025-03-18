@@ -43,7 +43,6 @@ int main() {
     serv_addr.sin_port = htons(PORT);
     serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    // Dados sintéticos
     std::string data = "Dados de teste";
 
     while (sent_packets < MAX_PACKETS) {
