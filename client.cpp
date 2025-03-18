@@ -111,37 +111,51 @@ int main() {
         file << i << "," << throughput_with_congestion[i] << "\n";
     file.close();
 
-    // Teste sem controle de congestionamento
-sent_packets = 0;
-last_ack = -1;
-std::vector<double> throughput_without_congestion;
-start_time = std::chrono::high_resolution_clock::now();
+   // Teste sem controle de congestionamento
+    sent_packets = 0;
+    last_ack = -1;
+    std::vector<double> throughput_without_congestion;
+    start_time = std::chrono::high_resolution_clock::now();
 
-while (sent_packets < MAX_PACKETS) {
-    packet.seq_num = sent_packets;
-    strcpy(packet.data, data.c_str());
-    sendto(sock, (char*)&packet, PACKET_SIZE, 0, (struct sockaddr*)&serv_addr, addr_len);
-    std::cout << "Enviado pacote #" << sent_packets << " (sem controle)" << std::endl;
-    sent_packets++;
+    while (sent_packets < MAX_PACKETS) {
+        packet.seq_num = sent_packets;
+        strcpy(packet.data, data.c_str());
+        sendto(sock, (char*)&packet, PACKET_SIZE, 0, (struct sockaddr*)&serv_addr, addr_len);
+        std::cout << "Enviado pacote #" << sent_packets << " (sem controle)" << std::endl;
+        sent_packets++;
 
+    // Receber ACK
     int bytes_received = recvfrom(sock, buffer, PACKET_SIZE, 0, nullptr, nullptr);
     if (bytes_received > 0) {
         memcpy(&ack_packet, buffer, PACKET_SIZE);
+        // Calcular vazão a cada pacote enviado, usando o número de pacotes confirmados
+        auto now = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration<double>(now - start_time).count();
+        if (elapsed > 0) { // Evitar divisão por zero
+            // Usar sent_packets como base, já que não há controle de janela
+            throughput_without_congestion.push_back(sent_packets / elapsed);
+        }
         if (ack_packet.ack_num > last_ack) {
             last_ack = ack_packet.ack_num;
-            auto now = std::chrono::high_resolution_clock::now();
-            double elapsed = std::chrono::duration<double>(now - start_time).count();
-            throughput_without_congestion.push_back((last_ack + 1) / elapsed);
+            std::cout << "Recebido ACK #" << last_ack << " (sem controle)" << std::endl;
+        }
+    } else {
+        // Timeout: registrar vazão mesmo assim
+        auto now = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration<double>(now - start_time).count();
+        if (elapsed > 0) {
+            throughput_without_congestion.push_back(sent_packets / elapsed);
         }
     }
 }
 
-    // Salvar dados de vazão sem controle de congestionamento
-    file.open("throughput_without_congestion.csv");
-    file << "Tempo,Vazao\n";
-    for (size_t i = 0; i < throughput_without_congestion.size(); i++)
-        file << i << "," << throughput_without_congestion[i] << "\n";
-    file.close();
+// Salvar dados de vazão sem controle de congestionamento
+file.open("throughput_without_congestion.csv");
+file << "Tempo,Vazao\n";
+for (size_t i = 0; i < throughput_without_congestion.size(); i++) {
+    file << i << "," << throughput_without_congestion[i] << "\n";
+}
+file.close();
 
     closesocket(sock);
     WSACleanup();

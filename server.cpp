@@ -90,7 +90,8 @@ int main() {
             received_packets++;
             auto now = std::chrono::high_resolution_clock::now();
             double elapsed = std::chrono::duration<double>(now - start_time).count();
-            throughput_with_loss.push_back(received_packets / elapsed);
+            if (elapsed > 0) // Evitar divisão por zero
+                throughput_with_loss.push_back(received_packets / elapsed);
         }
 
         // Enviar ACK acumulativo
