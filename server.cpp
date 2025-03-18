@@ -63,7 +63,7 @@ int main() {
             ack_packet.seq_num = 0;
             ack_packet.ack_num = expected_seq - 1;
             ack_packet.window_size = WINDOW_SIZE;
-            strcpy(ack_packet.data, "ACK"); // Substituído strcpy_s por strcpy
+            strcpy(ack_packet.data, "ACK");
             sendto(sock, (char*)&ack_packet, PACKET_SIZE, 0, (struct sockaddr*)&cli_addr, addr_len);
             std::cout << "Enviado ACK #" << ack_packet.ack_num << std::endl;
         }

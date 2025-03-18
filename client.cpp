@@ -68,6 +68,6 @@ int main() {
 
     closesocket(sock);
     WSACleanup();
-    std::cout << "Envio concluído!" << std::endl;
+    std::cout << "Envio concluido!" << std::endl;
     return 0;
 }
